@@ -105,15 +105,32 @@ func cleanCardQuery(card map[string]any, existingCard map[string]any) {
 		return
 	}
 
-	if _, ok := existingCard["dataset_query"].(map[string]any)["query"].(map[string]any)["aggregation-idents"]; !ok {
-		if query, ok := card["dataset_query"].(map[string]any)["query"].(map[string]any); ok {
-			delete(query, "aggregation-idents")
-		}
+	// Native queries don't have aggregation-idents/breakout-idents, so we can skip them.
+	existingDatasetQuery, ok := existingCard["dataset_query"].(map[string]any)
+	if !ok || existingDatasetQuery["type"] == "native" {
+		return
 	}
 
-	if _, ok := existingCard["dataset_query"].(map[string]any)["query"].(map[string]any)["breakout-idents"]; !ok {
-		if query, ok := card["dataset_query"].(map[string]any)["query"].(map[string]any); ok {
-			delete(query, "breakout-idents")
+	existingQuery, ok := existingDatasetQuery["query"].(map[string]any)
+	if !ok {
+		return
+	}
+
+	cardDatasetQuery, ok := card["dataset_query"].(map[string]any)
+	if !ok {
+		return
+	}
+
+	cardQuery, ok := cardDatasetQuery["query"].(map[string]any)
+	if !ok {
+		return
+	}
+
+	// Remove fields from cardQuery if they don't exist in existingQuery.
+	// This ensures consistency with the existing card's structure.
+	for _, field := range []string{"aggregation-idents", "breakout-idents"} {
+		if _, exists := existingQuery[field]; !exists {
+			delete(cardQuery, field)
 		}
 	}
 }
