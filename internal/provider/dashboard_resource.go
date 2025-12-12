@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"sort"
 
 	"github.com/flovouin/terraform-provider-metabase/metabase"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -56,6 +57,36 @@ var allowedDashcardAttributes = map[string]bool{
 	"series":                 true,
 	"parameter_mappings":     true,
 	"visualization_settings": true,
+}
+
+// normalizeDashcards makes Metabase responses and Terraform input comparable by
+// sorting dashcards in a deterministic order (row, col, then card_id).
+func normalizeDashcards(dashcards []any) {
+	getInt := func(m map[string]any, key string) int {
+		switch v := m[key].(type) {
+		case float64:
+			return int(v)
+		case int:
+			return v
+		default:
+			return 0
+		}
+	}
+
+	sort.SliceStable(dashcards, func(i, j int) bool {
+		mi, okI := dashcards[i].(map[string]any)
+		mj, okJ := dashcards[j].(map[string]any)
+		if !okI || !okJ {
+			return i < j
+		}
+		if ri, rj := getInt(mi, "row"), getInt(mj, "row"); ri != rj {
+			return ri < rj
+		}
+		if ci, cj := getInt(mi, "col"), getInt(mj, "col"); ci != cj {
+			return ci < cj
+		}
+		return getInt(mi, "card_id") < getInt(mj, "card_id")
+	})
 }
 
 func (r *DashboardResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
@@ -224,6 +255,8 @@ func updateCardsFromRawBody(bytes []byte, data *DashboardResourceModel) diag.Dia
 		}
 	}
 
+	normalizeDashcards(dashcards)
+
 	// Unmarshalling `cards_json` from the Terraform state/plan such that it can be compared to Metabase's response.
 	var existingCards []any
 	if !data.CardsJson.IsNull() {
@@ -233,6 +266,8 @@ func updateCardsFromRawBody(bytes []byte, data *DashboardResourceModel) diag.Dia
 			return diags
 		}
 	}
+
+	normalizeDashcards(existingCards)
 
 	// If the response of the Metabase API is different, the processed list of cards is marshalled and stored in the
 	// state. There is a high chance this will cause an error in Terraform because `cards_json` should not be modified by
